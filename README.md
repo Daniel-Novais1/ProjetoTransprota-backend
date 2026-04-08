@@ -30,3 +30,7 @@ git clone [https://github.com/seu-usuario/transprota-backend.git](https://github
 
 # Suba a infraestrutura
 docker-compose up -d
+
+
+
+desenvolvido por Daniel de Novais Santos Mendonça

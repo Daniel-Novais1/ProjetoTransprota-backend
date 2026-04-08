@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  # O Coração: Banco de dados com inteligência geográfica
+  db:
+    image: postgis/postgis:15-3.3
+    container_name: transprota_db
+    restart: always
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=password123
+      - POSTGRES_DB=transprota
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # A Velocidade: Cache para os GPS em tempo real
+  redis:
+    image: redis:7-alpine
+    container_name: transprota_cache
+    restart: always
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:

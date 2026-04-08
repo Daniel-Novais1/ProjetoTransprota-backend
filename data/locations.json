@@ -1,0 +1,23 @@
+{
+  "city": "Goiânia",
+  "terminals": [
+    {
+      "name": "Terminal Novo Mundo",
+      "lat": -16.6799,
+      "lng": -49.2138,
+      "radius_meters": 150
+    },
+    {
+      "name": "Terminal Praça da Bíblia",
+      "lat": -16.6733,
+      "lng": -49.2394,
+      "radius_meters": 150
+    },
+    {
+      "name": "Terminal Padre Pelágio",
+      "lat": -16.6617,
+      "lng": -49.3242,
+      "radius_meters": 200
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+- **Admin Security:** The `/admin` dashboard must use a separate Rate Limit profile (more permissive for the Admin IP, but strictly protected by JWT).
+- **JWT Best Practices:** Use a 24h expiration for Admin tokens and ensure the Secret Key is never hardcoded in the repository (use Environment Variables).
+- **Real-time Integrity:** The [QA] must ensure the Dashboard's "System Health" indicators accurately reflect the 429 and 500 errors caught in the logs.
+- **SSL Enforcement:** The Nginx proxy must redirect all HTTP traffic to HTTPS automatically.
+- **Load Balancing Strategy:** Use "Round Robin" for API instances, but ensure "Sticky Sessions" aren't needed since our API is Stateless (JWT-based).
+- **Health Check Path:** Nginx must periodically ping the `/health` endpoint of each Go instance and stop sending traffic if one returns a non-200 status.

@@ -7,6 +7,7 @@ import RoutePlanner from "@/components/RoutePlanner";
 import BusMap from "@/components/BusMap";
 import ArrivalBoard from "@/components/ArrivalBoard";
 import Reports from "@/components/Reports";
+import RouteMap from "@/components/RouteMap";
 import { AlertCircle } from "lucide-react";
 import "./App.css";
 
@@ -98,6 +99,11 @@ export default function App() {
                   <Reports />
                 </div>
               }
+            />
+
+            <Route
+              path="/mapa"
+              element={<RouteMap />}
             />
 
             <Route

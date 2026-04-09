@@ -1,0 +1,525 @@
+openapi: 3.0.0
+info:
+  title: TranspRota API
+  version: 1.0.0
+  description: Sistema de monitoramento de ônibus em tempo real com planejamento de rotas e crowdsourcing de denúncias
+  contact:
+    name: TranspRota Team
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Desenvolvimento local
+  - url: https://api.transprota.com
+    description: Produção
+
+paths:
+  /linhas:
+    get:
+      summary: Listar todas as linhas ativas
+      description: Retorna todas as linhas de ônibus ativas no sistema
+      tags:
+        - Linhas
+      responses:
+        '200':
+          description: Lista de linhas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  linhas:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        numero:
+                          type: string
+                          example: "101"
+                        nome:
+                          type: string
+                          example: "Circular Centro"
+        '500':
+          description: Erro ao consultar linhas
+
+  /terminais:
+    get:
+      summary: Listar todos os terminais
+      description: Retorna todos os terminais de ônibus com coordenadas geográficas
+      tags:
+        - Terminais
+      responses:
+        '200':
+          description: Lista de terminais
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  terminais:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Terminal'
+        '500':
+          description: Erro ao consultar terminais
+
+  /planejar:
+    get:
+      summary: Calcular rota entre dois pontos
+      description: Calcula a melhor rota entre origem e destino, priorizando rotas diretas e integrações. Resultado é cacheado por 15 minutos.
+      tags:
+        - Rotas
+      parameters:
+        - name: origem
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "Vila Pedroso"
+          description: Nome da parada de origem
+        - name: destino
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "UFG"
+          description: Nome da parada de destino
+      responses:
+        '200':
+          description: Rota calculada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RouteResponse'
+        '400':
+          description: Parâmetros inválidos
+        '404':
+          description: Nenhuma rota encontrada
+        '500':
+          description: Erro ao calcular rota
+
+  /gps/{busId}:
+    get:
+      summary: Obter posição atual do ônibus
+      description: Retorna a posição GPS em tempo real do ônibus especificado
+      tags:
+        - GPS
+      parameters:
+        - name: busId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "BUS-001"
+      responses:
+        '200':
+          description: Posição do ônibus
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GPSData'
+        '400':
+          description: Bus ID inválido
+        '404':
+          description: Ônibus offline
+        '500':
+          description: Erro ao consultar posição
+
+    post:
+      summary: Atualizar posição do ônibus
+      description: Atualiza a posição GPS do ônibus em tempo real (requer autenticação)
+      tags:
+        - GPS
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: busId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GPSData'
+      responses:
+        '200':
+          description: Localização atualizada com sucesso
+        '400':
+          description: Dados inválidos
+        '401':
+          description: Acesso negado - Chave de API inválida
+        '500':
+          description: Erro ao salvar posição
+
+  /gps/{busId}/status:
+    get:
+      summary: Verificar proximidade a terminais
+      description: Retorna o status de proximidade do ônibus a terminais (sem autenticação)
+      tags:
+        - GPS
+      parameters:
+        - name: busId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Status de proximidade
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '400':
+          description: Bus ID ausente
+        '404':
+          description: Ônibus não encontrado
+        '500':
+          description: Erro ao consultar status
+
+  /denuncias:
+    post:
+      summary: Submeter denúncia colaborativa
+      description: Submete uma denúncia de problema no ônibus com upload de evidência (requer autenticação)
+      tags:
+        - Denúncias
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmeterDenunciaRequest'
+      responses:
+        '201':
+          description: Denúncia submetida com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  trust_score:
+                    type: integer
+        '400':
+          description: Dados inválidos
+        '401':
+          description: Acesso negado - Chave de API inválida
+        '500':
+          description: Erro ao salvar denúncia
+
+    get:
+      summary: Listar denúncias ativas
+      description: Lista denúncias ativas, opcionalmente filtradas por localização (requer autenticação)
+      tags:
+        - Denúncias
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: lat
+          in: query
+          required: false
+          schema:
+            type: number
+          example: -15.7939
+          description: Latitude (opcional)
+        - name: lon
+          in: query
+          required: false
+          schema:
+            type: number
+          example: -48.0889
+          description: Longitude (opcional)
+        - name: radius
+          in: query
+          required: false
+          schema:
+            type: number
+          example: 5000
+          description: Raio em metros (máximo 10000, padrão 1000)
+      responses:
+        '200':
+          description: Lista de denúncias
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListaDenunciasResponse'
+        '400':
+          description: Coordenadas inválidas
+        '401':
+          description: Acesso negado - Chave de API inválida
+        '500':
+          description: Erro ao consultar denúncias
+
+  /health:
+    get:
+      summary: Health check
+      description: Verifica o status da API e conexões com bancos de dados
+      tags:
+        - Sistema
+      responses:
+        '200':
+          description: API está saudável
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, degraded, offline]
+                  timestamp:
+                    type: string
+                    format: date-time
+                  database:
+                    type: string
+                  redis:
+                    type: string
+        '503':
+          description: API indisponível (erro em dependências)
+
+  /metrics:
+    get:
+      summary: Métricas Prometheus
+      description: Retorna métricas de performance e uso da API no formato Prometheus
+      tags:
+        - Sistema
+      responses:
+        '200':
+          description: Métricas em formato texto
+
+components:
+  schemas:
+    Terminal:
+      type: object
+      properties:
+        id:
+          type: integer
+        nome:
+          type: string
+        lat:
+          type: number
+          format: double
+        lng:
+          type: number
+          format: double
+      example:
+        id: 1
+        nome: "Terminal Centro"
+        lat: -15.7939
+        lng: -48.0889
+
+    GPSData:
+      type: object
+      required:
+        - bus_id
+        - latitude
+        - longitude
+      properties:
+        bus_id:
+          type: string
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+        timestamp:
+          type: string
+          format: date-time
+      example:
+        bus_id: "BUS-001"
+        latitude: -15.7945
+        longitude: -48.0885
+        timestamp: "2026-04-08T14:30:00Z"
+
+    StatusResponse:
+      type: object
+      properties:
+        bus_id:
+          type: string
+        status:
+          type: string
+          enum: ["Em trânsito", "No Terminal"]
+        terminal:
+          type: string
+        distancia_metros:
+          type: number
+      example:
+        bus_id: "BUS-001"
+        status: "Em trânsito"
+        terminal: "Terminal Centro"
+        distancia_metros: 250.5
+
+    RouteStep:
+      type: object
+      properties:
+        numero_linha:
+          type: string
+        nome_linha:
+          type: string
+        paradas:
+          type: array
+          items:
+            type: string
+        tempo_total_minutos:
+          type: integer
+      example:
+        numero_linha: "101"
+        nome_linha: "Circular Centro"
+        paradas: ["Vila Pedroso", "Av. Goiás", "Terminal Centro"]
+        tempo_total_minutos: 25
+
+    RouteResponse:
+      type: object
+      properties:
+        origem:
+          type: string
+        destino:
+          type: string
+        tipo:
+          type: string
+          enum: ["direta", "com_transferencia"]
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteStep'
+        cached:
+          type: boolean
+      example:
+        origem: "Vila Pedroso"
+        destino: "UFG"
+        tipo: "com_transferencia"
+        cached: false
+        steps:
+          - numero_linha: "101"
+            nome_linha: "Circular Centro"
+            paradas: ["Vila Pedroso", "Terminal Centro"]
+            tempo_total_minutos: 20
+          - numero_linha: "202"
+            nome_linha: "Setor Oeste"
+            paradas: ["Terminal Centro", "UFG"]
+            tempo_total_minutos: 15
+
+    Denuncia:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        bus_line:
+          type: string
+        bus_id:
+          type: string
+        type:
+          type: string
+          enum: ["Lotado", "Atrasado", "Não Parou", "Ar Estragado", "Sujo"]
+        location:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        evidence_url:
+          type: string
+        trust_score:
+          type: integer
+      example:
+        id: "DEN-001"
+        user_id: "user123"
+        bus_line: "101"
+        bus_id: "BUS-001"
+        type: "Lotado"
+        location: "POINT(-48.0889 -15.7939)"
+        timestamp: "2026-04-08T14:30:00Z"
+        evidence_url: "https://example.com/photo.jpg"
+        trust_score: 65
+
+    SubmeterDenunciaRequest:
+      type: object
+      required:
+        - user_id
+        - bus_line
+        - bus_id
+        - type
+        - latitude
+        - longitude
+      properties:
+        user_id:
+          type: string
+          maxLength: 255
+        bus_line:
+          type: string
+          maxLength: 10
+        bus_id:
+          type: string
+          maxLength: 50
+        type:
+          type: string
+          enum: ["Lotado", "Atrasado", "Não Parou", "Ar Estragado", "Sujo"]
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+        evidence_url:
+          type: string
+          maxLength: 2048
+      example:
+        user_id: "user123"
+        bus_line: "101"
+        bus_id: "BUS-001"
+        type: "Lotado"
+        latitude: -15.7939
+        longitude: -48.0889
+        evidence_url: "https://example.com/photo.jpg"
+
+    ListaDenunciasResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        denuncias:
+          type: array
+          items:
+            $ref: '#/components/schemas/Denuncia'
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Chave de API para autenticação
+
+tags:
+  - name: Linhas
+    description: Operações com linhas de ônibus
+  - name: Terminais
+    description: Operações com terminais
+  - name: Rotas
+    description: Planejamento de rotas
+  - name: GPS
+    description: Monitoramento GPS de ônibus
+  - name: Denúncias
+    description: Sistema de denúncias colaborativas
+  - name: Sistema
+    description: Operações do sistema

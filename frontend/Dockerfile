@@ -6,7 +6,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
-# Copia TODO o resto (já inclui index.html, vite.config, etc)
+# Copia todo o resto (já inclui index.html, vite.config, etc)
 # Se o postcss não existir, o Vite usa o padrão interno e não quebra o build
 COPY . .
 

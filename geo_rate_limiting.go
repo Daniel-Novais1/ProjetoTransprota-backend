@@ -83,23 +83,51 @@ func (grl *GeoRateLimiter) GeoRateLimitMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clientIP := getClientIP(c)
 
-		// Verificar blacklist
-		if grl.isIPBlacklisted(clientIP) {
-			c.JSON(http.StatusForbidden, gin.H{
-				"error": "Acesso bloqueado por política de segurança",
-				"code":  "GEO_BLOCKED",
-			})
-			c.Abort()
-			return
+		// Verificar blacklist (não se aplica a IPs privados)
+		if !grl.isPrivateIP(clientIP) {
+			if grl.isIPBlacklisted(clientIP) {
+				c.JSON(http.StatusForbidden, gin.H{
+					"error": "Acesso bloqueado por política de segurança",
+					"code":  "GEO_BLOCKED",
+				})
+				c.Abort()
+				return
+			}
 		}
 
-		// Verificar whitelist
+		// Verificar whitelist explícita
 		if grl.isIPWhitelisted(clientIP) {
 			c.Next()
 			return
 		}
 
-		// Obter localização geográfica
+		// Whitelist automática para IPs privados (infraestrutura confiável)
+		// IPs privados têm limite muito alto (1000 req/min) para não bloquear desenvolvimento
+		if grl.isPrivateIP(clientIP) {
+			// Aplicar rate limit permissivo para IPs privados
+			privateIPHighLimit := 1000 // 1000 req/min para infraestrutura local
+			if !grl.checkRateLimit(clientIP, privateIPHighLimit) {
+				c.JSON(http.StatusTooManyRequests, gin.H{
+					"error": "Rate limit excedido",
+					"code":  "RATE_LIMIT_EXCEEDED",
+					"limit": privateIPHighLimit,
+					"note":  "IP privado - limite alto para desenvolvimento",
+				})
+				c.Abort()
+				return
+			}
+
+			// Headers informativos para IPs privados
+			c.Header("X-Geo-Country", "Local/Private")
+			c.Header("X-Geo-Region", "Infrastructure")
+			c.Header("X-Rate-Limit-Limit", fmt.Sprintf("%d", privateIPHighLimit))
+			c.Header("X-Private-IP", "true")
+
+			c.Next()
+			return
+		}
+
+		// Obter localização geográfica (apenas para IPs públicos)
 		location, err := grl.getGeoLocation(clientIP)
 		if err != nil {
 			log.Printf("Erro ao obter geolocalização para IP %s: %v", clientIP, err)
@@ -162,19 +190,31 @@ func (grl *GeoRateLimiter) GeoRateLimitMiddleware() gin.HandlerFunc {
 	}
 }
 
-// getClientIP obtém o IP real do cliente
+// getClientIP obtém o IP real do cliente com validação
+// Prioridade: X-Real-IP > X-Forwarded-For (primeiro IP) > ClientIP direto
 func getClientIP(c *gin.Context) string {
-	// Tentar obter de headers primeiro (para proxies)
-	if xForwardedFor := c.GetHeader("X-Forwarded-For"); xForwardedFor != "" {
-		// Pega o primeiro IP da lista
-		ips := strings.Split(xForwardedFor, ",")
-		return strings.TrimSpace(ips[0])
-	}
-
+	// X-Real-IP é o mais confiável (configurado pelo Nginx)
 	if xRealIP := c.GetHeader("X-Real-IP"); xRealIP != "" {
-		return xRealIP
+		// Validar se não é vazio ou inválido
+		if xRealIP != "" && xRealIP != "unknown" {
+			return xRealIP
+		}
 	}
 
+	// X-Forwarded-For pode ter múltiplos IPs (cliente, proxy1, proxy2...)
+	// O primeiro IP é o cliente original
+	if xForwardedFor := c.GetHeader("X-Forwarded-For"); xForwardedFor != "" {
+		ips := strings.Split(xForwardedFor, ",")
+		if len(ips) > 0 {
+			firstIP := strings.TrimSpace(ips[0])
+			// Validar se não é vazio ou inválido
+			if firstIP != "" && firstIP != "unknown" {
+				return firstIP
+			}
+		}
+	}
+
+	// Fallback para IP direto (sem proxy)
 	return c.ClientIP()
 }
 
@@ -227,19 +267,20 @@ func (grl *GeoRateLimiter) lookupGeoLocation(ip string) (*GeoLocation, error) {
 	// Simulação de lookup de geolocalização
 	// Em produção, usar APIs como MaxMind GeoIP2, IP-API, etc.
 
-	// IPs locais sempre são do Brasil
-	if ip == "127.0.0.1" || ip == "::1" || strings.HasPrefix(ip, "192.168.") || strings.HasPrefix(ip, "10.") {
+	// IPs privados (RFC 1918) sempre são tratados como local/Brasil
+	// Isso inclui Docker networks (172.16.0.0/12), 192.168.0.0/16, 10.0.0.0/8, loopback
+	if grl.isPrivateIP(ip) {
 		return &GeoLocation{
-			Country:     "Brasil",
-			CountryCode: "BR",
-			Region:      "Goiás",
-			City:        "Goiânia",
-			Latitude:    -16.6864,
-			Longitude:   -49.2643,
-			ISP:         "Local",
+			Country:     "Local/Private",
+			CountryCode: "XX",
+			Region:      "Infrastructure",
+			City:        "Local Network",
+			Latitude:    0,
+			Longitude:   0,
+			ISP:         "Private Network",
 			IsVPN:       false,
-			IsBrazil:    true,
-			IsGoias:     true,
+			IsBrazil:    false, // Não aplicar geolocalização para IPs privados
+			IsGoias:     false,
 		}, nil
 	}
 
@@ -316,8 +357,56 @@ func (grl *GeoRateLimiter) isGoiasIP(ip string) bool {
 	return false
 }
 
+// isPrivateIP verifica se IP é privado (RFC 1918 e RFC 4193)
+// IPs privados devem ter rate limit mais permissivo ou ser ignorados
+func (grl *GeoRateLimiter) isPrivateIP(ip string) bool {
+	// IPv4 Loopback
+	if ip == "127.0.0.1" || ip == "::1" {
+		return true
+	}
+
+	// IPv4 Private: 10.0.0.0/8
+	if strings.HasPrefix(ip, "10.") {
+		return true
+	}
+
+	// IPv4 Private: 172.16.0.0/12 (inclui Docker networks 172.17.x, 172.18.x, etc)
+	if strings.HasPrefix(ip, "172.") {
+		// Extrair segundo octeto
+		parts := strings.Split(ip, ".")
+		if len(parts) >= 2 {
+			secondOctet := parts[1]
+			// 172.16.0.0/12 = 172.16.0.0 a 172.31.255.255
+			// Segundo octeto deve estar entre 16 e 31
+			for i := 16; i <= 31; i++ {
+				if secondOctet == fmt.Sprintf("%d", i) {
+					return true
+				}
+			}
+		}
+	}
+
+	// IPv4 Private: 192.168.0.0/16
+	if strings.HasPrefix(ip, "192.168.") {
+		return true
+	}
+
+	// IPv6 Private: fc00::/7 (Unique Local)
+	if strings.HasPrefix(ip, "fc") || strings.HasPrefix(ip, "fd") {
+		return true
+	}
+
+	return false
+}
+
 // isSuspiciousIP verifica se IP é suspeito e deve ter limitação extrema
+// IPs privados NÃO são considerados suspeitos
 func (grl *GeoRateLimiter) isSuspiciousIP(ip string) bool {
+	// IPs privados nunca são suspeitos (infraestrutura confiável)
+	if grl.isPrivateIP(ip) {
+		return false
+	}
+
 	// IPs de data centers conhecidos (simulação)
 	suspiciousRanges := []string{
 		"8.8.8.",      // Google DNS
@@ -329,32 +418,6 @@ func (grl *GeoRateLimiter) isSuspiciousIP(ip string) bool {
 	}
 
 	for _, range_ := range suspiciousRanges {
-		if strings.HasPrefix(ip, range_) {
-			return true
-		}
-	}
-
-	// Verificar se é IP de VPN/proxy conhecido (simulação)
-	vpnRanges := []string{
-		"172.16.", // RFC1918
-		"172.17.", // Docker
-		"172.18.", // Docker
-		"172.19.", // Docker
-		"172.20.", // Docker
-		"172.21.", // Docker
-		"172.22.", // Docker
-		"172.23.", // Docker
-		"172.24.", // Docker
-		"172.25.", // Docker
-		"172.26.", // Docker
-		"172.27.", // Docker
-		"172.28.", // Docker
-		"172.29.", // Docker
-		"172.30.", // Docker
-		"172.31.", // Docker
-	}
-
-	for _, range_ := range vpnRanges {
 		if strings.HasPrefix(ip, range_) {
 			return true
 		}

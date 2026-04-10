@@ -12,9 +12,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/client"
 	"github.com/gin-gonic/gin"
+	"github.com/moby/moby/api/types"
+	"github.com/moby/moby/client"
 )
 
 // ClusterTest representa teste de resiliência do cluster

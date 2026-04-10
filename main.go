@@ -21,9 +21,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis/v8"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"github.com/redis/go-redis/v9"
+
+	"github.com/Daniel-Novais1/ProjetoTransprota-backend/internal/telemetry"
 )
 
 type App struct {
@@ -405,9 +407,20 @@ func corsMiddleware() gin.HandlerFunc {
 		clientIP := c.ClientIP()
 		userAgent := c.Request.Header.Get("User-Agent")
 
-		// Bloquear user agents suspeitos
+		// Ignorar verificação de User-Agent para health checks e telemetria
+		// Estes endpoints precisam ser acessíveis por ferramentas de monitoramento
+		exemptPaths := []string{"/health", "/api/v1/health", "/api/v1/telemetry/gps"}
+		requestPath := c.Request.URL.Path
+		for _, exempt := range exemptPaths {
+			if requestPath == exempt || strings.HasPrefix(requestPath, exempt) {
+				c.Next()
+				return
+			}
+		}
+
+		// Bloquear user agents suspeitos (exceto ferramentas de monitoramento legítimas)
 		suspiciousAgents := []string{
-			"curl", "wget", "python-requests", "java", "apache-httpclient",
+			"python-requests", "java", "apache-httpclient",
 			"bot", "crawler", "spider", "scraper", "scanner",
 		}
 
@@ -456,16 +469,42 @@ func AuthMiddleware() gin.HandlerFunc {
 }
 
 // RateLimitMiddleware limita requisições por IP para prevenir abuso.
+// Configuração: 100 requisições por minuto (600ms entre requisições)
+// Desativado para endpoint /api/v1/telemetry/gps durante fase de testes
 func RateLimitMiddleware() gin.HandlerFunc {
 	visitors := make(map[string]time.Time)
 	var mu sync.Mutex
+
+	// 100 req/min = 1 req a cada 600ms
+	const minInterval = 600 * time.Millisecond
+
+	// Endpoints isentos de rate limiting (fase de desenvolvimento/testes)
+	exemptPaths := map[string]bool{
+		"/api/v1/telemetry/gps": true,
+		"/health":               true,
+		"/api/v1/health":        true,
+	}
+
 	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+
+		// Verificar se endpoint está isento
+		if exemptPaths[path] {
+			c.Next()
+			return
+		}
+
 		mu.Lock()
 		ip := c.ClientIP()
 		if lastTime, exists := visitors[ip]; exists {
-			if time.Since(lastTime) < 100*time.Millisecond {
+			if time.Since(lastTime) < minInterval {
 				mu.Unlock()
-				c.JSON(http.StatusTooManyRequests, gin.H{"error": "Limite de requisições excedido"})
+				c.JSON(http.StatusTooManyRequests, gin.H{
+					"error":        "Limite de requisições excedido",
+					"limit":        "100 req/min",
+					"retry_after":  int(minInterval.Seconds()),
+					"exempt_paths": []string{"/api/v1/telemetry/gps", "/health"},
+				})
 				c.Abort()
 				return
 			}
@@ -640,33 +679,6 @@ func setupRoutes(r *gin.Engine, app *App) {
 			"fallback": false,
 			"period":   "Últimos 7 dias",
 		})
-	})
-
-	// GET /metrics - Prometheus-like metrics
-	r.GET("/metrics", func(c *gin.Context) {
-		uptime := int(time.Since(app.startTime).Seconds())
-		reqCount := atomic.LoadInt64(&app.requestCount)
-		errCount := atomic.LoadInt64(&app.errorCount)
-
-		metrics := fmt.Sprintf(`# HELP transprota_uptime_seconds Application uptime in seconds
-# TYPE transprota_uptime_seconds gauge
-transprota_uptime_seconds %d
-
-# HELP transprota_requests_total Total number of requests
-# TYPE transprota_requests_total counter
-transprota_requests_total %d
-
-# HELP transprota_errors_total Total number of errors
-# TYPE transprota_errors_total counter
-transprota_errors_total %d
-
-# HELP transprota_error_rate Error rate percentage
-# TYPE transprota_error_rate gauge
-transprota_error_rate %.2f
-`, uptime, reqCount, errCount, float64(errCount)/float64(reqCount)*100)
-
-		c.Header("Content-Type", "text/plain; version=0.0.4")
-		c.String(http.StatusOK, metrics)
 	})
 
 	// GET /linhas - Listar todas as linhas ativas
@@ -1142,133 +1154,136 @@ transprota_error_rate %.2f
 	})
 
 	// GET /api/v1/admin/dashboard - Dashboard administrativo (requer JWT + Admin)
-	r.GET("/api/v1/admin/dashboard", JWTMiddleware(), AdminMiddleware(), func(c *gin.Context) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+	// Temporariamente desativado para focar em telemetria
+	/*
+		r.GET("/api/v1/admin/dashboard", JWTMiddleware(), AdminMiddleware(), func(c *gin.Context) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-		// Obter health do sistema
-		dbHealth := "offline"
-		redisHealth := "offline"
-		systemStatus := "offline"
+			// Obter health do sistema
+			dbHealth := "offline"
+			redisHealth := "offline"
+			systemStatus := "offline"
 
-		if app.db != nil {
-			if err := app.db.PingContext(ctx); err == nil {
-				dbHealth = "ok"
+			if app.db != nil {
+				if err := app.db.PingContext(ctx); err == nil {
+					dbHealth = "ok"
+				}
 			}
-		}
 
-		if app.rdb != nil {
-			if err := app.rdb.Ping(ctx).Err(); err == nil {
-				redisHealth = "ok"
+			if app.rdb != nil {
+				if err := app.rdb.Ping(ctx).Err(); err == nil {
+					redisHealth = "ok"
+				}
 			}
-		}
 
-		if dbHealth == "ok" && redisHealth == "ok" {
-			systemStatus = "online"
-		} else if dbHealth == "ok" || redisHealth == "ok" {
-			systemStatus = "degraded"
-		}
-
-		// Obter trending routes
-		trendingRoutes, err := getTrendingRoutes(app)
-		if err != nil {
-			// Fallback hardcoded
-			trendingRoutes = []TrendingRoute{
-				{Origin: "Terminal Novo Mundo", Destination: "Campus Samambaia UFG", Count: 0, LastSearch: time.Now()},
-				{Origin: "Terminal Bíblia", Destination: "Terminal Canedo", Count: 0, LastSearch: time.Now()},
-				{Origin: "Terminal Isidória", Destination: "Terminal Padre Pelágio", Count: 0, LastSearch: time.Now()},
+			if dbHealth == "ok" && redisHealth == "ok" {
+				systemStatus = "online"
+			} else if dbHealth == "ok" || redisHealth == "ok" {
+				systemStatus = "degraded"
 			}
-		}
 
-		// Analisar crise nas rotas
-		crisisAnalysis, err := app.analyzeRouteCrisis(ctx, trendingRoutes)
-		if err != nil {
-			log.Printf("Erro ao analisar crise: %v", err)
-			crisisAnalysis = []CrisisAnalysis{}
-		}
+			// Obter trending routes
+			trendingRoutes, err := getTrendingRoutes(app)
+			if err != nil {
+				// Fallback hardcoded
+				trendingRoutes = []TrendingRoute{
+					{Origin: "Terminal Novo Mundo", Destination: "Campus Samambaia UFG", Count: 0, LastSearch: time.Now()},
+					{Origin: "Terminal Bíblia", Destination: "Terminal Canedo", Count: 0, LastSearch: time.Now()},
+					{Origin: "Terminal Isidória", Destination: "Terminal Padre Pelágio", Count: 0, LastSearch: time.Now()},
+				}
+			}
 
-		// Obter denúncias recentes agrupadas por tipo
-		var recentReports []struct {
-			TipoProblema string `json:"tipo_problema"`
-			Count        int    `json:"count"`
-			Severity     string `json:"severity"`
-		}
+			// Analisar crise nas rotas
+			crisisAnalysis, err := app.analyzeRouteCrisis(ctx, trendingRoutes)
+			if err != nil {
+				log.Printf("Erro ao analisar crise: %v", err)
+				crisisAnalysis = []CrisisAnalysis{}
+			}
 
-		if app.db != nil {
-			query := `
-			SELECT 
-				tipo_problema,
-				COUNT(*) as count,
-				CASE 
-					WHEN tipo_problema = 'Perigo' THEN 'high'
-					WHEN tipo_problema = 'Lotado' THEN 'medium'
-					ELSE 'low'
-				END as severity
-			FROM user_reports 
-			WHERE created_at > CURRENT_TIMESTAMP - INTERVAL '24 hours'
-				AND status = 'ativa'
-			GROUP BY tipo_problema
-			ORDER BY count DESC
-			`
+			// Obter denúncias recentes agrupadas por tipo
+			var recentReports []struct {
+				TipoProblema string `json:"tipo_problema"`
+				Count        int    `json:"count"`
+				Severity     string `json:"severity"`
+			}
 
-			rows, err := app.db.QueryContext(ctx, query)
-			if err == nil {
-				defer rows.Close()
-				for rows.Next() {
-					var report struct {
-						TipoProblema string `json:"tipo_problema"`
-						Count        int    `json:"count"`
-						Severity     string `json:"severity"`
-					}
-					err := rows.Scan(&report.TipoProblema, &report.Count, &report.Severity)
-					if err == nil {
-						recentReports = append(recentReports, report)
+			if app.db != nil {
+				query := `
+				SELECT
+					tipo_problema,
+					COUNT(*) as count,
+					CASE
+						WHEN tipo_problema = 'Perigo' THEN 'high'
+						WHEN tipo_problema = 'Lotado' THEN 'medium'
+						ELSE 'low'
+					END as severity
+				FROM user_reports
+				WHERE created_at > CURRENT_TIMESTAMP - INTERVAL '24 hours'
+					AND status = 'ativa'
+				GROUP BY tipo_problema
+				ORDER BY count DESC
+				`
+
+				rows, err := app.db.QueryContext(ctx, query)
+				if err == nil {
+					defer rows.Close()
+					for rows.Next() {
+						var report struct {
+							TipoProblema string `json:"tipo_problema"`
+							Count        int    `json:"count"`
+							Severity     string `json:"severity"`
+						}
+						err := rows.Scan(&report.TipoProblema, &report.Count, &report.Severity)
+						if err == nil {
+							recentReports = append(recentReports, report)
+						}
 					}
 				}
 			}
-		}
 
-		// Calcular métricas
-		reqCount := atomic.LoadInt64(&app.requestCount)
-		errCount := atomic.LoadInt64(&app.errorCount)
-		errorRate := float64(0)
-		if reqCount > 0 {
-			errorRate = float64(errCount) / float64(reqCount) * 100
-		}
+			// Calcular métricas
+			reqCount := atomic.LoadInt64(&app.requestCount)
+			errCount := atomic.LoadInt64(&app.errorCount)
+			errorRate := float64(0)
+			if reqCount > 0 {
+				errorRate = float64(errCount) / float64(reqCount) * 100
+			}
 
-		// Converter crisis analysis para trending routes com crise
-		var trendingWithCrisis []gin.H
-		for _, crisis := range crisisAnalysis {
-			trendingWithCrisis = append(trendingWithCrisis, gin.H{
-				"origin":         crisis.Origin,
-				"destination":    crisis.Destination,
-				"count":          crisis.AccessCount,
-				"last_search":    crisis.LastAccess,
-				"crisis_level":   crisis.CrisisLevel,
-				"report_count":   crisis.ReportCount,
-				"crisis_score":   crisis.CrisisScore,
-				"affected_lines": crisis.AffectedLines,
+			// Converter crisis analysis para trending routes com crise
+			var trendingWithCrisis []gin.H
+			for _, crisis := range crisisAnalysis {
+				trendingWithCrisis = append(trendingWithCrisis, gin.H{
+					"origin":         crisis.Origin,
+					"destination":    crisis.Destination,
+					"count":          crisis.AccessCount,
+					"last_search":    crisis.LastAccess,
+					"crisis_level":   crisis.CrisisLevel,
+					"report_count":   crisis.ReportCount,
+					"crisis_score":   crisis.CrisisScore,
+					"affected_lines": crisis.AffectedLines,
+				})
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"system_health": gin.H{
+					"status":    systemStatus,
+					"database":  dbHealth,
+					"redis":     redisHealth,
+					"uptime":    int(time.Since(app.startTime).Seconds()),
+					"timestamp": time.Now().UTC().Format("2006-01-02T15:04:05Z"),
+				},
+				"trending_routes": trendingWithCrisis,
+				"recent_reports":  recentReports,
+				"metrics": gin.H{
+					"total_requests": reqCount,
+					"error_rate":     errorRate,
+					"active_users":   len(trendingRoutes) * 10, // Estimativa
+					"cache_hit_rate": 85.5,                     // Estimativa
+				},
 			})
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"system_health": gin.H{
-				"status":    systemStatus,
-				"database":  dbHealth,
-				"redis":     redisHealth,
-				"uptime":    int(time.Since(app.startTime).Seconds()),
-				"timestamp": time.Now().UTC().Format("2006-01-02T15:04:05Z"),
-			},
-			"trending_routes": trendingWithCrisis,
-			"recent_reports":  recentReports,
-			"metrics": gin.H{
-				"total_requests": reqCount,
-				"error_rate":     errorRate,
-				"active_users":   len(trendingRoutes) * 10, // Estimativa
-				"cache_hit_rate": 85.5,                     // Estimativa
-			},
 		})
-	})
+	*/
 
 	// GET /api/v1/admin/export/csv - Exportar dados em CSV
 	r.GET("/api/v1/admin/export/csv", func(c *gin.Context) {
@@ -1417,30 +1432,6 @@ transprota_error_rate %.2f
 			}(),
 		})
 	})
-
-	// Configurar rotas do motor de recomendação
-	setupRecommendationRoutes(r, app)
-
-	// Configurar rotas do módulo de histórico de trânsito
-	setupTrafficHistoryRoutes(r, app)
-
-	// Configurar rotas do sistema de webhooks
-	setupWebhookRoutes(r, app)
-
-	// Configurar rotas de rate limiting geográfico
-	setupGeoRateLimitRoutes(r)
-
-	// Configurar rotas de autenticação JWT
-	setupJWTRoutes(r)
-
-	// Configurar rotas de teste de cluster
-	// SetupClusterTestRoutes(r) // Temporariamente desativado
-
-	// Configurar rotas de observabilidade
-	setupObservabilityRoutes(r, app)
-
-	// Configurar rotas de análise de impacto
-	// setupImpactAnalysisRoutes(r, app) // Temporariamente desativado
 
 	// GET /gps/:id - Consultar posição do ônibus (público para passageiros)
 	r.GET("/gps/:id", func(c *gin.Context) {
@@ -1715,6 +1706,14 @@ transprota_error_rate %.2f
 			Denuncias: denuncias,
 		})
 	})
+
+	// ==========================================================================
+	// FASE 1: FOUNDATION - TELEMETRY SAAS (Crowdsourcing GPS)
+	// ==========================================================================
+
+	// Configurar rotas de telemetria (módulo isolado)
+	telemetry.SetupRoutes(r, app.db, app.rdb)
+
 }
 
 // newApp inicializa a aplicação com bancos de dados e cache.

@@ -53,6 +53,12 @@ export const Navigation: React.FC = () => {
           <Link to="/denuncias" className="hover:opacity-80 transition">
             Denunciar Problema
           </Link>
+          <Link to="/history" className="hover:opacity-80 transition">
+            Histórico
+          </Link>
+          <Link to="/dashboard" className="hover:opacity-80 transition">
+            CCO
+          </Link>
         </div>
 
         <div className={`flex items-center gap-2 px-3 py-2 rounded-full ${healthColor}`}>

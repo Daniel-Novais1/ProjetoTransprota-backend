@@ -61,7 +61,8 @@ const AdminDashboard: React.FC = () => {
   // Carregar dados do dashboard
   const fetchDashboardData = async () => {
     try {
-      const response = await axios.get('http://localhost:8080/api/v1/admin/dashboard');
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+      const response = await axios.get(`${apiUrl}/api/v1/admin/dashboard`);
       setData(response.data);
       setError(null);
     } catch (err: any) {
@@ -83,7 +84,8 @@ const AdminDashboard: React.FC = () => {
 
   // Exportar CSV
   const exportCSV = async () => {
-    try {
+    try {aiUrlmprtma.env.VITE_API_URL || ';
+      const response = await axios.get(`${apiUrl}`
       const response = await axios.get('http://localhost:8080/api/v1/admin/export/csv');
       
       // Criar blob e download

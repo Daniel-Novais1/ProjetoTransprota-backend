@@ -1,14 +1,29 @@
-# TranspRota Frontend
+# TranspRota Frontend v1.1
 
-Frontend React para o sistema de monitoramento de ônibus em tempo real com planejamento de rotas.
+Frontend React para o sistema de monitoramento de ônibus em tempo real com planejamento de rotas e dashboard de compliance B2B.
+
+## 📌 Versão Atual: v1.1
+
+**Novidades nesta versão:**
+- ✅ HashRouter implementado para compatibilidade
+- ✅ Dashboard de Compliance B2B com Tailwind
+- ✅ Sidebar persistente com navegação
+- ✅ Grid de 3 Cards (Status, Alertas, Auditorias)
+- ✅ Mock API Service para desenvolvimento
+- ✅ ProtectedRoute para rotas autenticadas
+- ✅ Security audit realizado
+- ✅ Build de produção 100% verde
 
 ## 🎯 Funcionalidades
 
 - **Planejador de Rotas**: Calcula a melhor rota entre dois pontos
 - **Rastreador de Ônibus**: Monitora a localização em tempo real
 - **Sistema de Denúncias**: Colaboração da comunidade para reportar problemas
+- **Dashboard de Compliance**: Interface B2B para auditoria e telemetria
+- **Status de Conformidade**: Monitoramento em tempo real da frota
+- **Alertas de Telemetria**: Notificações de anomalias
+- **Histórico de Auditorias**: Logs de ações administrativas
 - **Trust Score**: Sistema de reputação para usuários
-- **Status da API**: Verificação de saúde das dependências
 
 ## 📦 Instalação
 
@@ -25,6 +40,10 @@ cp .env.example .env
 ## 🚀 Desenvolvimento
 
 ```bash
+# Usar o script de bypass de PATH (Windows)
+start_dev.bat
+
+# Ou manualmente
 npm run dev
 ```
 
@@ -33,7 +52,13 @@ A aplicação estará disponível em `http://localhost:5173`
 ## 🏗️ Build para Produção
 
 ```bash
+# Usar o script de build (Windows)
+build.bat
+
+# Ou manualmente
 npm run build
+
+# Preview do build de produção
 npm run preview
 ```
 
@@ -41,7 +66,7 @@ npm run preview
 
 ```env
 VITE_API_URL=http://localhost:8080  # URL base da API
-VITE_API_KEY=seu-api-key            # Chave de API para endpoints protegidos
+VITE_WS_URL=ws://localhost:8081/ws # WebSocket para atualizações em tempo real
 ```
 
 ## 🎨 Estrutura de Componentes
@@ -50,19 +75,23 @@ VITE_API_KEY=seu-api-key            # Chave de API para endpoints protegidos
 frontend/
 ├── src/
 │   ├── components/
-│   │   ├── Navigation.jsx          # Navegação principal
-│   │   ├── RouteCalculator.jsx     # Planejador de rotas
-│   │   ├── BusTracker.jsx          # Rastreador de ônibus
-│   │   └── Reports.jsx             # Sistema de denúncias
+│   │   ├── DashboardPrincipal.tsx  # Dashboard de Compliance B2B
+│   │   ├── ProtectedRoute.tsx       # Barreira de autenticação
+│   │   ├── RouteMap.tsx            # Planejador de rotas (Home)
+│   │   ├── Login.tsx               # Autenticação
+│   │   └── ...                     # Outros componentes
+│   ├── services/
+│   │   └── api.ts                  # Mock API Service (desenvolvimento)
 │   ├── api/
 │   │   └── client.js               # Cliente Axios configurado
-│   ├── App.jsx                     # Componente raiz
-│   ├── App.css                     # Estilos globais
-│   ├── index.css                   # Tailwind CSS
-│   └── main.jsx                    # Ponto de entrada
+│   ├── App.tsx                     # Componente raiz com HashRouter
+│   ├── main.tsx                    # Ponto de entrada
+│   └── index.css                   # Tailwind CSS
 ├── public/
 │   └── index.html
-├── vite.config.js
+├── vite.config.js                  # Configuração Vite (porta 5173, host 0.0.0.0)
+├── build.bat                       # Script de build para Windows
+├── start_dev.bat                   # Script de desenvolvimento para Windows
 ├── tailwind.config.js
 ├── package.json
 └── .env.example
@@ -85,6 +114,23 @@ const location = await api.getBusLocation('BUS-001')
 await api.submitReport(denunciaData)
 ```
 
+## � Roteamento
+
+O sistema usa **HashRouter** para compatibilidade:
+
+- `#/` - Home (Planejador de Rotas)
+- `#/dashboard` - Dashboard de Compliance
+- `#/settings` - Configurações (protegido)
+- `#/*` - Página não encontrada
+
+## 🔐 Segurança
+
+- JWT tokens armazenados no localStorage
+- Rotas protegidas via `ProtectedRoute` component
+- LocalStorage usado para armazenar ID do usuário
+- HTTPS recomendado em produção
+- Credenciais não expostas no código frontend
+
 ## 📱 Responsividade
 
 A aplicação é totalmente responsiva usando Tailwind CSS, otimizada para:
@@ -92,20 +138,15 @@ A aplicação é totalmente responsiva usando Tailwind CSS, otimizada para:
 - 📱 Tablets (768px+)
 - 💻 Desktops (1024px+)
 
-## 🔐 Segurança
-
-- Chave de API é enviada no header `X-API-Key`
-- LocalStorage usado para armazenar ID do usuário
-- HTTPS recomendado em produção
-
 ## 🛠️ Tecnologias
 
 - **React 18**: Framework UI
-- **React Router**: Navegação
+- **React Router v6.8.1**: Navegação com HashRouter
 - **Axios**: Cliente HTTP
-- **Vite**: Build tool
+- **Vite 4.5.14**: Build tool
 - **Tailwind CSS**: Estilos
 - **Lucide React**: Ícones
+- **TypeScript**: Tipagem estática
 
 ## 📄 Licença
 

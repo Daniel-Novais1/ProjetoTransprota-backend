@@ -5,6 +5,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    host: '0.0.0.0',
+    strictPort: true,
     proxy: {
       '/api': {
         target: 'http://localhost:8080',
@@ -16,5 +18,10 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        entryFileNames: `assets/[name]-[hash]-${Date.now()}.js`,
+      },
+    },
   },
 })

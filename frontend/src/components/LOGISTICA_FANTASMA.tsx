@@ -375,4 +375,4 @@ const RouteMap: React.FC = () => {
   );
 };
 
-export default RouteMap;
+export default LOGISTICA_FANTASMA;

@@ -16,16 +16,35 @@ class ApiClient {
 
   constructor() {
     const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8080";
-    const apiKey = import.meta.env.VITE_API_KEY || "default-key";
 
     this.client = axios.create({
       baseURL: apiUrl,
       timeout: 10000,
       headers: {
         "Content-Type": "application/json",
-        "X-API-Key": apiKey,
       },
     });
+
+    // Interceptor para adicionar JWT token do localStorage
+    this.client.interceptors.request.use((config) => {
+      const token = localStorage.getItem("jwt_token");
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+      return config;
+    });
+
+    // Interceptor para capturar erros 401 e remover token
+    this.client.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401) {
+          localStorage.removeItem("jwt_token");
+          window.location.href = "/";
+        }
+        return Promise.reject(error);
+      }
+    );
   }
 
   async getHealth(): Promise<HealthResponse> {

@@ -158,7 +158,8 @@ const RouteMapMobile: React.FC = () => {
         setError(null);
         
         const startTime = performance.now();
-        const response = await axios.get(`http://localhost:8080/api/v1/map-view?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`);
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+        const response = await axios.get(`${apiUrl}/api/v1/map-view?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`);
         const endTime = performance.now();
         
         setLoadTime(endTime - startTime);

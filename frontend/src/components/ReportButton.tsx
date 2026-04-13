@@ -86,7 +86,8 @@ const ReportButton: React.FC<ReportButtonProps> = ({
         bus_line: currentBusLine
       };
 
-      const response = await axios.post('http://localhost:8080/api/v1/reports', report);
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+      const response = await axios.post(`${apiUrl}/api/v1/reports`, report);
       
       if (response.status === 201) {
         showSuccessToast();

@@ -14,3 +14,4 @@
 - **Scalability:** Design tables to support spatial clustering, allowing future queries such as "find all routes within a 500m radius of the user's current location."
 - **Spatial Pruning:** The [DEBUGGER] must ensure the PostgreSQL `EXPIRE` trigger for reports is high-priority. Database size should be kept lean by archiving (not just deleting) reports older than 24h into a cold-storage table for historical trend analysis.
 - **Voter Weight:** Implement a "Voter Weight" logic: reports from users with a higher "Trust Score" (Analyst's metric) should trigger the Red Heatmap faster than new/unverified accounts.
+Após completar cada tarefa técnica, você deve realizar uma análise de impacto e listar 3 melhorias lógicas ou de segurança que surgiram como necessidade. Se a tarefa falhar, você deve autogerar uma sub-tarefa de diagnóstico antes de pedir ajuda ao usuário.

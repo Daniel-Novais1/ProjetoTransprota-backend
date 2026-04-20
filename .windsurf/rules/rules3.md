@@ -1,0 +1,1 @@
+Após completar cada tarefa técnica, você deve realizar uma análise de impacto e listar 3 melhorias lógicas ou de segurança que surgiram como necessidade. Se a tarefa falhar, você deve autogerar uma sub-tarefa de diagnóstico antes de pedir ajuda ao usuário.

@@ -1,8 +1,6 @@
-# 🚌 TranspRota - Sistema de Monitoramento de Ônibus em Tempo Real
+# TranspRota - Plataforma Modular de Telemetria de Precisão
 
-**O monitoramento inteligente do transporte coletivo de Goiânia na palma da mão.**
-
-TranspRota é um sistema inovador de monitoramento e fiscalização colaborativa que resolve o problema da imprecisão de horários e falta de transparência no transporte público do RMTC (Região Metropolitana de Taguatinga e Cidades).
+**Sistema de monitoramento de transporte público em tempo real com arquitetura modular, JWT authentication, PostGIS geospatial queries e audit logging completo.**
 
 ---
 
@@ -102,21 +100,59 @@ docker-compose up -d
 ```bash
 # Health checks
 GET /health                   # Status da API
-GET /metrics                  # Métricas Prometheus
+GET /api/v1/health            # Status da API (v1)
 
-# Rotas
-GET /planejar?origem=...&destino=...
-GET /linhas                   # Linhas ativas
-GET /terminais                # Terminais disponíveis
+# Autenticação (JWT)
+POST /api/v1/auth/login       # Obter token JWT
 
-# GPS
-GET /gps/:id                  # Localização do ônibus
-POST /gps                     # Atualizar localização (auth)
-GET /gps/:id/status           # Proximidade a terminais
+# Telemetria GPS
+POST /api/v1/telemetry/gps    # Receber ping GPS
+GET /api/v1/telemetry/last-position/:device_hash  # Última posição
+GET /api/v1/telemetry/ws      # WebSocket para atualizações em tempo real
 
-# Denúncias
-POST /denuncias               # Submeter denúncia (auth)
-GET /denuncias                # Listar denúncias (auth, filtro geo)
+# Analytics
+GET /api/v1/analytics/fleet-health  # Métricas de saúde da frota
+```
+
+### 🔐 Exemplos de Uso
+
+#### Login (Obter Token JWT)
+```bash
+curl -X POST http://localhost:8081/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin",
+    "password": "admin123"
+  }'
+
+# Resposta:
+# {
+#   "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+#   "expires_in": 86400
+# }
+```
+
+#### Enviar Telemetria GPS (com autenticação)
+```bash
+curl -X POST http://localhost:8081/api/v1/telemetry/gps \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -d '{
+    "device_id": "bus-001",
+    "lat": -16.6869,
+    "lng": -49.2648,
+    "speed": 45.5,
+    "heading": 180,
+    "accuracy": 10,
+    "recorded_at": "2024-01-01T12:00:00Z"
+  }'
+
+# Resposta:
+# {
+#   "status": "success",
+#   "telemetry_id": "tel-12345",
+#   "message": "GPS data received and saved"
+# }
 ```
 
 📖 **Documentação Interativa:** [http://localhost:3000](http://localhost:3000) (Swagger UI)
